@@ -1,0 +1,22 @@
+FROM python:3.11-slim AS base
+
+# Non-root user
+RUN groupadd -r queen && useradd -r -g queen -d /home/queen -s /bin/bash queen \
+    && mkdir -p /home/queen /app /data /workspace \
+    && chown -R queen:queen /home/queen /app /data /workspace
+
+WORKDIR /app
+
+# Dependencies
+COPY queen_core/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# Source
+COPY queen_core/ /app/queen_core/
+
+USER queen
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+CMD ["python", "-m", "queen_core.orchestrator"]
