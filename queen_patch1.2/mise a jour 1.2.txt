@@ -1,0 +1,169 @@
+en s'inspirant de ce dépot git peut tu amélioré l'architecture et prendre le code qui peut nous aider a aller plus vite  https://github.com/Ed1s0nZ/CyberStrikeAI
+
+16:22
+Je vais d'abord examiner ce dépôt pour comprendre ce qu'on peut récupérer.
+
+
+Web recherché
+Web recherché
+Je dois être transparent avec toi sur ce que j'ai trouvé.
+
+Ce que j'ai découvert sur CyberStrikeAI
+En analysant ce dépôt, deux choses importantes ressortent :
+
+1) C'est un outil offensif activement utilisé dans des cyberattaques réelles. Des articles de BleepingComputer et CSO Online datant de 2 jours rapportent que l'IP d'un acteur ayant compromis plus de 500 pare-feu FortiGate exécutait CyberStrikeAI. Le développeur a des liens documentés avec des groupes affiliés au gouvernement chinois (Knownsec 404 / MSS). Team Cymru a observé 21 serveurs exécutant cet outil entre janvier et février 2026.
+
+2) Côté architecture, les idées intéressantes ne nécessitent pas de copier du code offensif. Le dépôt est en Go, notre projet est en Python — il n'y a pas de code à réutiliser directement.
+
+Ce que je peux faire à la place
+Les patterns architecturaux de CyberStrikeAI sont pertinents et je peux les adapter à Queen V1 sans rien copier de problématique. Voici ce qui nous accélérerait concrètement :
+
+3 patterns à intégrer dans Queen V1 :
+
+Pattern CyberStrikeAI	Adaptation Queen V1	Impact
+Tools = fichiers YAML (tools/ dir, hot-reload, timeout/sandbox par outil)	Nos job types sont hardcodés dans worker_unified.py. On les externalise en YAML avec un registre hot-reload.	Ajouter un nouveau type de job sans toucher au code
+Roles = profils YAML (system_prompt + tools autorisés + skills attachés)	Nos goals n'ont pas de "profil". On ajoute des rôles qui pré-configurent les contraintes, le prompt LLM et les outils autorisés.	Un goal "optimize_scoring" utilise automatiquement le bon prompt et les bons outils
+Skills = dossiers SKILL.md (chargés à la demande via read_skill, pas injectés automatiquement)	Nos workers n'ont pas de base de connaissances. On ajoute un dossier skills/ avec des guides par domaine, lisibles par le LLM.	Le LLM génère du meilleur code car il a accès à des best practices contextuelles
+Tu veux que j'implémente ces 3 patterns ? Je prévois 3 lots :
+
+LOT A : Tool Registry YAML + loader + intégration worker
+LOT B : Roles YAML + loader + intégration planner/orchestrator
+LOT C : Skills directory + read_skill tool pour le LLM + intégration worker
+Dis-moi si tu valides et je démarre par le LOT A.
+
+ok et tu me dira comment les intégrer a la version queen que l'ont a etape par étape
+
+16:28
+LOT A — Tool Registry YAML. Je crée les fichiers puis je t'explique l'intégration.
+
+Fichier 1/3 — queen_core/tool_registry.py (le loader)
+
+
+Tool Registry - loads YAML tool definitions from /app/tools/ with hot-reload, validation, timeout/sandbox per tool
+Tool Registry - loads YAML tool definitions from /app/tools/ with hot-reload, validation, timeout/sandbox per tool
+Fichier 2/3 — Exemples YAML dans tools/
+
+
+5 fichiers créés, a exécuté une commande
+5 fichiers créés, a exécuté une commande
+Fichier 3/3 — Endpoints API pour le registre
+
+
+Tool registry API endpoints - to be included in api.py
+Tool registry API endpoints - to be included in api.py
+Maintenant le LOT B — Roles YAML.
+
+
+4 fichiers créés, a exécuté une commande
+4 fichiers créés, a exécuté une commande
+LOT C — Skills directory.
+
+
+6 fichiers créés, a exécuté une commande
+6 fichiers créés, a exécuté une commande
+Zip de tout :
+
+
+Exécuté 3 commandes, lu un fichier
+Exécuté 3 commandes, lu un fichier
+Guide d'intégration étape par étape
+Étape 1 — Extraire le zip
+Extraire queen_v1_patterns.zip dans ton dossier queen_v1/ existant. Les fichiers se placent automatiquement aux bons endroits.
+
+Étape 2 — Ajouter PyYAML aux dépendances
+Dans queen_core/requirements.txt, ajouter :
+
+pyyaml>=6.0,<7.0
+Et dans dashboard/backend/requirements.txt, même chose.
+
+Étape 3 — Monter tools/, roles/, skills/ dans Docker
+Dans docker-compose.yml, ajouter les volumes à orchestrator, worker-1, et dashboard :
+
+yaml
+    volumes:
+      # ... volumes existants ...
+      - ./tools:/app/tools:ro
+      - ./roles:/app/roles:ro
+      - ./skills:/app/skills:ro
+Le :ro signifie read-only — les containers ne peuvent pas modifier les définitions.
+
+Étape 4 — Brancher le tool_router dans l'API
+Dans dashboard/backend/api.py, après la ligne app.add_middleware(...), ajouter :
+
+python
+from dashboard.backend.tool_routes import tool_router
+app.include_router(tool_router)
+Ça expose automatiquement les endpoints GET /api/tools, GET /api/tools/{name}, POST /api/tools/reload, etc.
+
+Étape 5 — Utiliser les rôles dans le planner
+Dans queen_core/planner.py, modifier la fonction de planning pour charger le rôle si le goal en a un. Ajouter au début du fichier :
+
+python
+from queen_core.role_registry import get_role_registry
+Puis dans la logique de planning, avant l'appel au LLM :
+
+python
+role_name = goal_constraints.get("role", "")
+if role_name:
+    role_reg = get_role_registry()
+    role = role_reg.get(role_name)
+    if role:
+        system_prompt = role.build_system_prompt()
+        # Utiliser ce system_prompt dans l'appel LLM
+        # + filtrer les outils autorisés via role.tools
+Étape 6 — Utiliser les tools dans le worker
+Dans workers/worker_unified.py, au lieu d'avoir les timeouts hardcodés, charger depuis le registre. Ajouter :
+
+python
+from queen_core.tool_registry import get_registry
+Puis dans le handler de job :
+
+python
+tool_reg = get_registry()
+tool_def = tool_reg.get("python_exec")  # ou selon le job_type
+if tool_def:
+    timeout = tool_def.timeout_seconds
+    blocked = tool_def.blocked_patterns
+Étape 7 — Donner les skills au LLM
+Dans le worker, quand on construit le prompt LLM pour un job de type codegen ou research, charger les skills pertinents :
+
+python
+from queen_core.skill_registry import get_skill_registry
+
+skill_reg = get_skill_registry()
+
+# Le rôle définit les skills recommandés
+for skill_name in role.skills:  # ex: ["python-optimization", "testing-strategies"]
+    content = skill_reg.read_skill(skill_name)
+    if content:
+        # Ajouter au contexte LLM (dans le system prompt ou en user message)
+        prompt += f"\n\n--- Skill: {skill_name} ---\n{content}"
+Étape 8 — Ajouter un rôle au goal (frontend)
+Dans GoalCreateModal.tsx, ajouter un Select pour le rôle. Dans le constraints, passer role: "optimizer" (ou le nom choisi).
+
+Étape 9 — Tester
+bash
+# Rebuild
+docker compose up --build -d
+
+# Vérifier que les tools sont chargés
+curl http://localhost:8080/api/tools
+
+# Vérifier les catégories
+curl http://localhost:8080/api/tools/categories
+
+# Détail d'un outil
+curl http://localhost:8080/api/tools/python_exec
+
+# Hot-reload après modification d'un YAML
+curl -X POST http://localhost:8080/api/tools/reload
+Étape 10 — Ajouter de nouveaux outils/rôles/skills
+Pour ajouter un outil : créer un fichier tools/mon_outil.yaml et faire POST /api/tools/reload.
+
+Pour ajouter un rôle : créer roles/mon_role.yaml et redémarrer.
+
+Pour ajouter un skill : créer skills/mon-skill/SKILL.md et redémarrer.
+
+Aucun code Python à modifier pour étendre le système.
+
+Queen v1 patterns

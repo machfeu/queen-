@@ -1,0 +1,16 @@
+# tools/diff_gen.yaml — Génération de diff entre deux fichiers
+name: diff_gen
+description: "Génère un diff unifié entre deux versions d'un fichier."
+category: patch
+command_template: "diff -u {old_path} {new_path}"
+timeout_seconds: 30
+max_output_bytes: 5000000
+sandbox: true
+risk_level: low
+requires_approval: false
+enabled: true
+allowed_extensions: []
+blocked_patterns: []
+tags:
+  - patch
+  - diff
