@@ -1,0 +1,17 @@
+# tools/syntax_check.yaml — Vérification syntaxique Python
+name: syntax_check
+description: "Compile un fichier Python pour vérifier la syntaxe (py_compile)."
+category: test
+command_template: "python3 -m py_compile {file_path}"
+timeout_seconds: 30
+max_output_bytes: 1000000
+sandbox: true
+risk_level: low
+requires_approval: false
+enabled: true
+allowed_extensions:
+  - .py
+blocked_patterns: []
+tags:
+  - test
+  - gate
