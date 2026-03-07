@@ -1,0 +1,22 @@
+FROM python:3.11-slim AS base
+
+RUN groupadd -r worker && useradd -r -g worker -d /home/worker -s /bin/bash worker \
+    && mkdir -p /home/worker /app /data /workspace \
+    && chown -R worker:worker /home/worker /app /workspace
+
+WORKDIR /app
+
+# Dependencies (same as queen_core + nothing extra for now)
+COPY queen_core/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# Source
+COPY queen_core/ /app/queen_core/
+COPY workers/ /app/workers/
+
+USER worker
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+CMD ["python", "-m", "workers.worker_unified"]
