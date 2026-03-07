@@ -1,0 +1,11 @@
+{
+  "title": "Ajouter un endpoint /api/workspace/search avec recherche par nom de fichier",
+  "description": "Le dashboard a un endpoint /api/workspace qui liste les fichiers, mais il manque une recherche. L'objectif est de créer un endpoint GET /api/workspace/search?q=<pattern> qui retourne tous les fichiers du workspace dont le nom matche le pattern (case-insensitive, glob). L'endpoint doit être sécurisé contre le path traversal.",
+  "constraints": {
+    "risk_level": "medium",
+    "timeout": 300,
+    "success_criteria": "L'endpoint retourne les fichiers matchant le pattern sans permettre de sortir du workspace. Un test unitaire valide le comportement.",
+    "repo_target": "default",
+    "require_manual_approval": true
+  }
+}
