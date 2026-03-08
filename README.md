@@ -1,267 +1,352 @@
-# Queen v1.4 — Dossier Qualité & Patchlog (v1.1 → v1.4)
+# Queen v1.8 — Récapitulatif complet, correctifs et état du projet
 
-Ce document est conçu pour être placé **à la racine** de Queen v1.4 afin de :
-- comprendre rapidement **ce que fait le programme**,
-- garder une trace claire des **patchs successifs (1.2 → 1.4)**,
-- appliquer une routine de **suivi qualité** (tests, critères de validation, traçabilité).
+## Résumé rapide
 
----
+**Queen v1.8** n'est plus un simple prototype brut. La base est maintenant **nettement assainie**, avec :
 
-## 1) Objectif du programme
+- une **évolution darwinienne pilotable**
+- une **promotion / rollback sécurisés**
+- une **UI de pilotage** pour l'évolution
+- une **authentification unifiée** backend / frontend / WebSocket
+- un **launcher desktop** pour éviter la ligne de commande
+- une **stabilisation backend** sur les points les plus risqués
+- un **benchmark v2.1** qui commence à mesurer du comportement réel, pas seulement la forme du code
 
-**Queen** est un orchestrateur d’agents (“fourmis / workers”) exécutés en conteneurs Docker, qui :
-1. reçoit un objectif (via dashboard),
-2. le transforme en jobs (research / codegen / test / eval / patch),
-3. pousse ces jobs dans une file Redis,
-4. collecte les résultats,
-5. applique (ou propose) des patches de code,
-6. expose l’état et les métriques via un dashboard (API + UI).
+La base recommandée aujourd'hui est :
 
-**Philosophie** : la Queen reste le cerveau de coordination. Les workers exécutent et produisent des sorties reproductibles (logs, artefacts, patches).
+> **Queen v1.8 stabilisée = 1B + lot 3 + benchmark v2.1**
 
 ---
 
-## 2) Architecture (vue rapide)
+## Ce que Queen v1.8 apporte
 
-### Services Docker (compose)
-- **orchestrator** : boucle principale de la Queen (planification, dispatch, suivi run, notifications)
-- **workers** : un ou plusieurs workers (types: research/codegen/test/eval/patch)
-- **redis** : bus de jobs / événements (queues)
-- **dashboard backend** : API HTTP (expose outils, rôles, skills, budget, notifications…)
-- **dashboard frontend** : UI (création d’objectif, suivi run, visualisation)
+### 1. Évolution darwinienne pilotable
 
-### Flux de traitement (simplifié)
-1. UI → backend : création d’objectif (avec rôle + contraintes)
-2. Orchestrator : transforme en plan + jobs
-3. Redis : file `queen:jobs`
-4. Workers : consomment, exécutent, rendent compte
-5. Orchestrator : agrège résultats, déclenche eval/patch/self-heal, notifie
+Le système d'évolution n'est plus un simple bloc expérimental caché dans le backend.
 
----
+Il dispose désormais de :
 
-## 3) Dossiers clés (repères)
+- un **manager d'évolution** pilotable
+- une **API dédiée** pour démarrer / arrêter / suivre l'évolution
+- une **archive de variantes**
+- un **classement des variantes**
+- un **historique d'événements**
+- une **UI Evolution** dans le dashboard
 
-- `queen_core/`
-  - orchestrator, planner, evaluator, consensus, notifier, self_heal
-  - registres `tool_registry.py`, `role_registry.py`, `skill_registry.py`
-- `workers/`
-  - worker_unified.py : worker multi-types, injection role/skills, règles d’exécution
-- `dashboard/`
-  - `backend/` : API (FastAPI/Flask selon stack), routes tools/roles/skills/budget/notifier
-  - `frontend/` : UI
-- `tools/` (patch 1.2)
-  - outils déclaratifs (YAML)
-- `roles/` (patch 1.2)
-  - rôles prêts à l’emploi (YAML)
-- `skills/` (patch 1.2)
-  - “compétences” / conventions (YAML + SKILL.md)
+Cela permet enfin de voir :
+
+- quelles variantes sont générées
+- comment elles sont scorées
+- laquelle est actuellement la meilleure
+- ce qui a été promu ou rollbacké
 
 ---
 
-## 4) Démarrage (quickstart)
+### 2. Promotion / rollback réellement utilisables
 
-### Build + run
+Le système de promotion a été fortement durci.
+
+#### Avant
+
+- promotion surtout conceptuelle
+- risque d'overlay partiel
+- rollback fragile
+- validation chemin insuffisante
+- risques de traversal / meta forgé
+
+#### Maintenant
+
+- **promotion bornée au workspace**
+- **suppression préalable** des répertoires touchés avant extraction
+- **rollback propre** avec sauvegarde par backup
+- `_meta.json` par backup
+- protection contre :
+  - `target_dir` arbitraire
+  - Zip Slip
+  - faux préfixes type `/workspaceevil`
+  - entrées forgées dans le meta
+- historique des backups exposé
+- UI permettant désormais de promouvoir / rollbacker sans passer par `curl`
+
+### État
+
+> **Correct pour un usage normal et des tests sérieux.**
+> Ce n'est pas encore un mécanisme de déploiement industriel, mais ce n'est plus une simple preuve de concept.
+
+---
+
+### 3. Dashboard et pilotage sans ligne de commande
+
+Un **launcher desktop** a été ajouté pour simplifier le lancement local :
+
+- `queen_launcher.py`
+- `Launch_Queen.bat`
+- `Launch_Queen_Silent.vbs`
+
+Objectif :
+
+- éditer simplement le `.env`
+- configurer les clés
+- démarrer / arrêter / redémarrer la stack
+- ouvrir le dashboard
+- limiter le recours à la ligne de commande
+
+La page **Evolution** a été enrichie avec :
+
+- affichage du ranking
+- statut de promotion
+- bouton de promotion par variante
+- bouton de rollback
+- hooks frontend associés
+
+### Réserve honnête
+
+Le **branchement frontend est cohérent**, mais le **build frontend complet** n'a pas pu être validé dans l'environnement d'analyse utilisé ici à cause de l'absence de `node_modules` et du réseau. La validation réelle doit être faite localement avec :
+
 ```bash
-docker compose up --build
-```
-
-### Smoke checks API
-```bash
-curl http://localhost:8080/api/tools
-curl http://localhost:8080/api/roles
-curl http://localhost:8080/api/skills
-curl http://localhost:8080/api/budget
-curl http://localhost:8080/api/notifications/status
-```
-
-### Vérifier la file Redis (jobs)
-```bash
-docker exec -it <stack>-redis-1 redis-cli LLEN queen:jobs
+npm install
+npm run build
 ```
 
 ---
 
-## 5) Patchlog (historique de ce qui a été ajouté)
+## Correctifs majeurs appliqués depuis le patch 1.5
 
-> Référence: base **v1.1** puis application patchs **1.2**, **1.3**, **1.4**.
+Les versions intermédiaires ont servi à corriger une grande partie des défauts historiques.
 
-### 5.1 Patch 1.2 — Patterns (tools/roles/skills)
-**Objectif** : rendre Queen configurable sans toucher au code, avec des briques déclaratives.
+### Correctifs effectivement réglés
 
-Ajouts principaux :
-- Ajout des dossiers :
-  - `tools/` : outils en YAML
-  - `roles/` : rôles en YAML (ex: “researcher”, “codegen”, etc.)
-  - `skills/` : compétences en YAML + `SKILL.md`
-- Ajout des registres :
-  - `queen_core/tool_registry.py`
-  - `queen_core/role_registry.py`
-  - `queen_core/skill_registry.py`
-- Ajout de **PyYAML** aux requirements (core + backend)
-- Mise à jour `docker-compose.yml` pour monter `tools/roles/skills` (read-only recommandé)
-- Dashboard backend :
-  - endpoints `GET /api/tools`, `GET /api/roles`, `GET /api/skills` (+ reload si implémenté)
-- Planner / Orchestrator / Worker :
-  - support de `constraints.role`
-  - injection du rôle + skills dans les prompts système
-  - règles runtime (file_write/python_exec/syntax_check) pour fiabiliser
+#### Backend / orchestration
+- correction du **thread zombie** côté worker timeout
+- correction de la **double lecture mémoire** non atomique dans l'orchestrateur
+- amélioration de la logique de **consensus** trop agressive sur le rejet
+- correction du **dry_run smoke** trompeur
+- nettoyage d'une partie des `except Exception: pass` les plus nuisibles
 
-Résultat attendu :
-- création d’un objectif avec un **rôle** depuis l’UI
-- la Queen alimente les workers avec un prompt enrichi, cohérent et traçable
+#### Évolution / archive / sélection
+- **lock SQLite** dans l'archive d'évolution
+- `variant_id` sécurisés avec UUID
+- meilleure transparence du score et du ranking
+- nettoyage des répertoires candidats temporaires
+- promotion / rollback fortement durcis
 
----
+#### Sécurité / auth / configuration
+- **auth unifiée** backend / frontend / WebSocket
+- filtrage de `/api/settings`
+- validation des **webhooks**
+- meilleure journalisation des échecs d'auth WebSocket
+- **rate limiting** sur les routes API coûteuses
+- correction du contrôle de chemin `/api/workspace` avec `commonpath`
 
-### 5.2 Patch 1.3 — Budget + Context chaining + Prompt builder
-**Objectif** : éviter les runs qui partent à l’infini, et améliorer la cohérence entre jobs.
+#### Base de données / persistance
+- remplacement large de `datetime.utcnow()` par des horodatages timezone-aware
+- allowlists pour les mises à jour SQL dynamiques dans `memory.py`
+- correction de `get_stats()`
+- ajout d'un système léger de **migrations SQLite**
 
-Ajouts principaux :
-- **Budget tracker** :
-  - suivi (tokens/temps/coût/appels) + seuils + arrêt si dépassement
-- **Chaînage de contexte** :
-  - injection `previous_context` pour les jobs d’un même run
-- **Prompt builder spécialisé** :
-  - prompts adaptés selon type de job (research/codegen/test/eval/patch)
-  - continue d’injecter rôle + skills (compat patch 1.2)
-- Dashboard backend :
-  - endpoint `GET /api/budget`
+#### API / dashboard
+- migration `startup` vers `lifespan`
+- pagination `/api/workspace` plafonnée côté serveur
+- hooks frontend pour promotion / rollback / statut de promotion
 
-Résultat attendu :
-- un run affiche ses budgets + alertes
-- les jobs successifs “se comprennent” mieux grâce au contexte chainé
+#### Self-heal / notifier / outils
+- corrections sur `self_heal.py`
+- corrections sur `notifier.py`
+- validations supplémentaires sur `tool_registry.py`
 
 ---
 
-### 5.3 Patch 1.4 — Consensus + Self-heal + Webhooks
-**Objectif** : fiabiliser l’évaluation, réparer automatiquement, notifier proprement.
+## Benchmark v2.1 — état réel
 
-Ajouts principaux :
-1) **Consensus multi-évaluateurs**
-   - `queen_core/consensus.py`
-   - utilisé par le job `eval` + l’évaluateur global `queen_core/evaluator.py`
-   - calibrage via un skill type `code-evaluation` (si présent)
+L'ancien scoring donnait presque le même résultat à toutes les variantes qui compilaient et s'importaient.
 
-2) **Self-heal automatique**
-   - `queen_core/self_heal.py`
-   - déclenché si un job `test` échoue
-   - max 2 tentatives (évite boucles)
+### Avant
 
-3) **Notifications Webhooks**
-   - `queen_core/notifier.py`
-   - orchestrator notifie : start/end, patch_ready, budget warn/exceeded, approve/apply/reject
-   - Dashboard backend : `dashboard/backend/notifier_routes.py`
-   - endpoints (exemples) :
-     - `GET  /api/notifications/status`
-     - `POST /api/notifications/webhook`
-     - `POST /api/notifications/test`
-     - `POST /api/notifications/enable?enabled=true`
+Le système favorisait surtout :
 
-Variables `.env` (selon implémentation) :
-- `NOTIFY_WEBHOOK_URL`
-- `NOTIFY_WEBHOOK_FORMAT` (slack|discord|telegram|generic)
-- `NOTIFY_WEBHOOK_EVENTS` (optionnel)
-- `NOTIFY_WEBHOOK_URL_2` (optionnel)
+- le fait que le code compile
+- le fait que le code s'importe
+- un smoke test léger
 
-Résultat attendu :
-- si tests cassent → tentative de réparation automatique
-- évaluations plus robustes (moins “au doigt mouillé”)
-- possibilité d’alerter dans un canal (Slack/Discord/Telegram/etc.)
+Conséquence :
 
----
+> la sélection était **trop aveugle**
 
-## 6) Règles de suivi qualité (à appliquer à chaque run)
+### Maintenant
 
-### 6.1 Critères “GO / NO-GO”
-Un patch est **GO** si :
-- les tests passent (ou absence de tests explicitement documentée),
-- l’évaluateur retourne “approve” via consensus,
-- pas de dépassement budget,
-- logs exploitables (pas d’erreurs silencieuses).
+Le benchmark est séparé en deux parties :
 
-Un patch est **NO-GO** si :
-- échec tests après self-heal,
-- consensus négatif,
-- dépassement budget,
-- patch non reproductible (manque de commandes/étapes).
+#### Benchmarks statiques
+Analyse sans exécution :
+- syntaxe
+- patterns dangereux
+- docstrings
+- gestion d'erreurs
+- complexité
 
-### 6.2 Checklists
-**Avant run**
-- [ ] `docker compose up --build` OK
-- [ ] API répond (`/api/tools`, `/api/roles`, `/api/skills`, `/api/budget`)
-- [ ] `.env` renseigné si webhooks
+#### Benchmarks fonctionnels
+Exécution réelle en sous-processus avec timeout :
+- imports cœur
+- round-trip policy
+- round-trip patcher
+- CRUD mémoire SQLite
+- idempotence des migrations
 
-**Pendant run**
-- [ ] file Redis non bloquée (`LLEN queen:jobs` varie)
-- [ ] logs orchestrator propres (pas d’exception loop)
-- [ ] budget sous contrôle
+### Effet concret
 
-**Après run**
-- [ ] tests OK (ou rapport clair)
-- [ ] eval OK (consensus)
-- [ ] patch appliqué et versionné
-- [ ] notification envoyée (si activée)
+Le fitness prend désormais en compte séparément :
+
+- `static_score`
+- `functional_score`
+
+et applique un **veto fonctionnel** si une variante compile mais casse des briques importantes.
+
+### État honnête
+
+> Le benchmark commence enfin à mesurer du **comportement réel**.
+> 
+> En revanche, il ne couvre pas encore un **flux métier complet Queen** du type :
+> goal → plan → jobs → eval → patch → apply.
+
+Donc :
+
+- **beaucoup mieux qu'avant**
+- **pas encore un benchmark final idéal**
 
 ---
 
-## 7) Traçabilité recommandée (pragmatique)
+## État global du projet
 
-### 7.1 Naming
-- Tag run : `RUN_YYYYMMDD_HHMM_<objectif_court>`
-- Patch : `PATCH_YYYYMMDD_<sujet>`
+## Ce qui est aujourd'hui solide ou exploitable
 
-### 7.2 Fichiers log
-Garder :
-- logs orchestrator
-- logs workers
-- patch diff (ou archive patch)
-- état budget en fin de run
+### Solide / exploitable
+- base backend globalement assainie
+- auth unifiée
+- archive évolution utilisable
+- promotion / rollback utilisables
+- launcher desktop
+- API évolution
+- UI évolution branchée
+- benchmark v2.1 utile
+- migrations SQLite minimales en place
+- rate limiting local
 
-### 7.3 Exemple de bloc “rapport de run” (à copier)
-```text
-RUN_ID:
-OBJECTIF:
-ROLE:
-BUDGET_MAX:
-RESULTAT:
-- Tests:
-- Eval consensus:
-- Patch:
-- Notifications:
-ARTEFACTS:
-- zip/diff:
-- logs:
-NOTES:
-- known issues:
-```
+### Correct mais encore perfectible
+- fitness darwinien
+- benchmark métier
+- cohérence transactionnelle patch + DB
+- frontend build réel à confirmer localement
+- observabilité fine du workflow complet
 
----
-
-## 8) Dépannage (symptômes fréquents)
-
-- **LLEN=0 tout le temps** : orchestrator ne pousse pas de jobs → vérifier logs orchestrator + config run.
-- **Workers up mais rien ne consomme** : mismatch queue name / type job / worker types.
-- **/api/tools vide** : montages volumes `tools/roles/skills` absents ou YAML invalides → valider syntaxe.
-- **Budget dépasse immédiatement** : seuil trop bas ou mauvaise calibration (désactiver temporairement pour debug).
-- **Self-heal en boucle** : max tentatives mal configuré → imposer un “hard stop”.
+### Encore en construction
+- benchmark métier bout-en-bout
+- tests d'intégration complets du pipeline Queen
+- multimodalité vision / audio / vidéo
+- recherche internet assistée sous contrôle humain
+- sandboxing plus dur des benchmarks utilisateur
+- durcissement multi-process / multi-instance du rate limiting
+- déploiement vraiment “prod-grade”
 
 ---
 
-## 9) Ce que Queen v1.4 n’est PAS (limites assumées)
-- Ce n’est pas une “IA magique” qui garantit des patches corrects sans tests.
-- Sans tests de projet, self-heal/eval restent limités.
-- La qualité dépend fortement de :
-  - la clarté des rôles,
-  - la pertinence des skills,
-  - les garde-fous (budget, consensus, règles worker).
+## Ce que Queen est aujourd'hui
+
+La lecture la plus honnête est la suivante :
+
+> **Queen v1.8 est un MVP renforcé et sérieusement assaini.**
+> 
+> Ce n'est plus une simple preuve de concept brute.
+> 
+> Mais ce n'est pas encore une Reine auto-améliorante pleinement robuste ni une plateforme de production durcie.
+
+### En clair
+
+Queen sait maintenant :
+
+- générer et classer des variantes
+- observer leur qualité
+- promouvoir et rollbacker
+- être pilotée plus facilement
+- se protéger beaucoup mieux qu'avant sur plusieurs angles critiques
+
+Mais Queen ne sait pas encore, de façon robuste et démontrée :
+
+- s'améliorer seule sur des objectifs métier riches
+- valider un vrai flux complet de bout en bout
+- évoluer en confiance sur des modules complexes comme la vision, l'audio ou la recherche internet autonome
 
 ---
 
-## 10) Rappel opérationnel (ce qu’il faut faire pour rester propre)
-- versionner chaque patch
-- ne jamais merger “au feeling”
-- faire passer les tests avant “approve”
-- garder un patchlog clair (ce fichier)
+## Roadmap recommandée
+
+### Étape 1 — verrouillage final de la base
+À faire encore :
+
+- validation réelle du frontend avec `npm install && npm run build`
+- fiabilisation de la cohérence DB lors d'un apply patch (transaction plus stricte)
+- quelques tests d'intégration supplémentaires
+
+### Étape 2 — benchmark métier v2.2+
+Priorité forte :
+
+- ajouter un mini flux Queen plus complet
+- continuer à privilégier le **fonctionnel réel** dans le fitness
+- éviter les variantes seulement “jolies” statiquement
+
+### Étape 3 — observabilité
+À renforcer :
+
+- vues plus riches dans le dashboard
+- suivi plus fin des promotions, backups, veto fonctionnels
+- logs et événements mieux corrélés
+
+### Étape 4 — architecture future
+À préparer sans l'activer trop tôt :
+
+- `vision/`
+- `audio/`
+- `video/`
+- `research/`
+
+Mais uniquement **après** consolidation du noyau actuel.
 
 ---
 
-Fin du document.
+## Ce qui reste à surveiller
+
+Voici les limites encore connues :
+
+- le **rate limiter** est local en mémoire, pas distribué
+- les **migrations SQLite** existent, mais restent minimales
+- les **benchmarks utilisateur** ne sont pas sandboxés
+- la validation frontend complète n'a pas été exécutée dans l'environnement d'analyse
+- le workflow Queen complet sans Redis/LLM n'est pas encore benchmarké de manière intégrée
+- la logique d'auto-amélioration reste encore **assistée et encadrée**, pas autonome au sens fort
+
+---
+
+## Verdict final
+
+### Ce que le dépôt peut annoncer honnêtement
+
+Queen v1.8 est désormais :
+
+- **plus stable**
+- **plus observable**
+- **plus sécurisée**
+- **plus pilotable**
+- **moins aveugle dans sa sélection de variantes**
+
+### Ce qu'il ne faut pas sur-vendre
+
+Il ne faut pas encore présenter Queen comme :
+
+- une IA multimodale complète
+- une auto-évolution totalement fiable
+- une plateforme pleinement prod-ready
+- un système Darwinien mature et autonome
+
+### Formulation recommandée
+
+> Queen v1.8 marque le passage d'un prototype expérimental à une base de travail sérieuse, stabilisée et pilotable. Le projet dispose maintenant d'une boucle d'évolution observable, d'un système de promotion/rollback, d'une sécurisation backend renforcée, et d'un benchmark hybride statique/fonctionnel. La prochaine étape consiste à renforcer les benchmarks métier et les tests d'intégration afin de transformer cette base assainie en noyau réellement robuste pour l'évolution future du système.
+
